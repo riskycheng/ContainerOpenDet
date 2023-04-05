@@ -19,14 +19,15 @@ video_ext = ["mp4", "mov", "avi", "mkv"]
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "demo", default="image", help="demo type, eg. image, video and webcam"
+        "--demo", default="video", help="demo type, eg. image, video and webcam"
     )
-    parser.add_argument("--config", help="model config file path")
-    parser.add_argument("--model", help="model file path")
-    parser.add_argument("--path", default="./demo", help="path to images or video")
+    parser.add_argument("--config", default="./nanodet/nanodet-plus-m_416_door.yml", help="model config file path")
+    parser.add_argument("--model", default='./models/nanodet_model_best.pth', help="model file path")
+    parser.add_argument("--path", default="./videos/video_09_01_230317_nightOpen_reserved_TEST.mp4", help="path to images or video")
     parser.add_argument("--camid", type=int, default=0, help="webcam demo camera id")
     parser.add_argument(
         "--save_result",
+        default=True,
         action="store_true",
         help="whether to save the inference result of image/video",
     )
