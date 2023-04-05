@@ -1,7 +1,7 @@
 import argparse
 import os
 import time
-
+import numpy as np
 import cv2
 import torch
 
@@ -11,10 +11,38 @@ from nanodet.data.transform import Pipeline
 from nanodet.model.arch import build_model
 from nanodet.util import Logger, cfg, load_config, load_model_weight
 from nanodet.util.path import mkdir
+from nanodet.util.visualization import _COLORS
 
 image_ext = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
 video_ext = ["mp4", "mov", "avi", "mkv"]
+class_names = ['box_close', 'box_open', 'box_uncertain']
 
+
+def cal_iou(box1, box2):
+    """
+    :param box1: = [left1, top1, right1, bottom1]
+    :param box2: = [left2, top2, right2, bottom2]
+    :return:
+    """
+    left1, top1, right1, bottom1 = box1
+    left2, top2, right2, bottom2 = box2
+    # 计算每个矩形的面积
+    s1 = (right1 - left1) * (bottom1 - top1)  # b1的面积
+    s2 = (right2 - left2) * (bottom2 - top2)  # b2的面积
+
+    # 计算相交矩形
+    left = max(left1, left2)
+    top = max(top1, top2)
+    right = min(right1, right2)
+    bottom = min(bottom1, bottom2)
+
+    # 相交框的w,h
+    w = max(0, right - left)
+    h = max(0, bottom - top)
+    a1 = w * h  # C∩G的面积
+    a2 = s1 + s2 - a1
+    iou = a1 / a2  # iou = a1/ (s1 + s2 - a1)
+    return iou
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -27,7 +55,7 @@ def parse_args():
     parser.add_argument("--camid", type=int, default=0, help="webcam demo camera id")
     parser.add_argument(
         "--save_result",
-        default=True,
+        default=False,
         action="store_true",
         help="whether to save the inference result of image/video",
     )
@@ -77,7 +105,7 @@ class Predictor(object):
         result_img = self.model.head.show_result(
             meta["raw_img"][0], dets, class_names, score_thres=score_thres, show=True
         )
-        print("viz time: {:.3f}s".format(time.time() - time1))
+        # print("viz time: {:.3f}s".format(time.time() - time1))
         return result_img
 
 
@@ -90,6 +118,35 @@ def get_image_list(path):
             if ext in image_ext:
                 image_names.append(apath)
     return image_names
+
+
+# True : current door in open suspicious status     ==> unsafe
+# False : current door in closed status             ==> safe
+def extractMetaAndDecision(detections, score_thresh=0.35):
+    all_box = []
+    for label in detections:
+        for bbox in detections[label]:
+            score = bbox[-1]
+            if score > score_thresh:
+                x0, y0, x1, y1 = [int(i) for i in bbox[:4]]
+                all_box.append([label, x0, y0, x1, y1, score])
+    all_box.sort(key=lambda v: v[5])
+    for box in all_box:
+        label, x0, y0, x1, y1, score = box
+        text = "{}:{:.1f}%".format(class_names[label], score * 100)
+        # print(text)
+
+    # target : merge boxes of different classes, when 2 boxes are highly overlapped, make it uncertain
+    refinedBoxes = []
+    for box_a in all_box:
+        for box_b in all_box:
+            iou = cal_iou(box_a[1:-1], box_b[1:-1])
+            if box_a[0] != box_b[0] and iou >= 0.6:
+                print('overlapping detected:' + str(iou) + '@box_a:' + class_names[box_a[0]] + ',score:' + str(box_a[-1]) +
+                      '@box_b:' + class_names[box_b[0]] + ',score:' + str(box_b[-1]))
+                cv2.waitKey()
+    return True
+
 
 
 def main():
@@ -144,7 +201,11 @@ def main():
             ret_val, frame = cap.read()
             if ret_val:
                 meta, res = predictor.inference(frame)
+
                 result_frame = predictor.visualize(res[0], meta, cfg.class_names, 0.35)
+
+                extractMetaAndDecision(res[0])
+
                 if args.save_result:
                     vid_writer.write(result_frame)
                 ch = cv2.waitKey(1)
