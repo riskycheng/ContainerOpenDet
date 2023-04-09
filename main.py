@@ -43,6 +43,7 @@ def cal_iou(box1, box2):
     iou = a1 / a2  # iou = a1/ (s1 + s2 - a1)
     return iou
 
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -50,11 +51,12 @@ def parse_args():
     )
     parser.add_argument("--config", default="./nanodet/nanodet-plus-m_416_door.yml", help="model config file path")
     parser.add_argument("--model", default='./models/nanodet_model_best.pth', help="model file path")
-    parser.add_argument("--path", default="./videos/video_09_01_230317_nightOpen_reserved_TEST.mp4", help="path to images or video")
+    parser.add_argument("--path", default="./videos/video_09_01_230317_nightOpen_reserved_TEST.mp4",
+                        help="path to images or video")
     parser.add_argument("--camid", type=int, default=0, help="webcam demo camera id")
     parser.add_argument(
         "--save_result",
-        default=False,
+        default=True,
         action="store_true",
         help="whether to save the inference result of image/video",
     )
@@ -121,8 +123,9 @@ def get_image_list(path):
 
 # True : current door in open suspicious status     ==> unsafe
 # False : current door in closed status             ==> safe
-def extractMetaAndDecision(detections, score_thresh=0.35):
+def extractMetaAndDecision(detections, score_thresh=0.35, nms_threshold=0.6):
     all_box = []
+    merged = False
     for label in detections:
         for bbox in detections[label]:
             score = bbox[-1]
@@ -130,22 +133,32 @@ def extractMetaAndDecision(detections, score_thresh=0.35):
                 x0, y0, x1, y1 = [int(i) for i in bbox[:4]]
                 all_box.append([label, x0, y0, x1, y1, score])
     all_box.sort(key=lambda v: v[5])
-    for box in all_box:
-        label, x0, y0, x1, y1, score = box
-        text = "{}:{:.1f}%".format(class_names[label], score * 100)
-        # print(text)
+
+    # for box in all_box:
+    #     label, x0, y0, x1, y1, score = box
+    #     text = "{}:{:.1f}%".format(class_names[label], score * 100)
+    #     # print(text)
 
     # target : merge boxes of different classes, when 2 boxes are highly overlapped, make it uncertain
     refinedBoxes = []
     for box_a in all_box:
         for box_b in all_box:
             iou = cal_iou(box_a[1:-1], box_b[1:-1])
-            if box_a[0] != box_b[0] and iou >= 0.6:
-                print('overlapping detected:' + str(iou) + '@box_a:' + class_names[box_a[0]] + ',score:' + str(box_a[-1]) +
+            if box_a[0] != box_b[0] and iou >= nms_threshold:
+                print('merging performed !!!!!! overlapping detected:' + str(iou) + '@box_a:' + class_names[
+                    box_a[0]] + ',score:' + str(box_a[-1]) +
                       '@box_b:' + class_names[box_b[0]] + ',score:' + str(box_b[-1]))
-                cv2.waitKey()
-    return True
-
+                # if overlapping happens, then will choose the more dangerous class as combined result ==> box_open
+                # 0 for box
+                if box_a[0] != 1:
+                    all_box[all_box.index(box_a)][0] = -1
+                break
+    for item in all_box:
+        if item[0] != -1:
+            refinedBoxes.append(item)
+        else:
+            merged = True
+    return refinedBoxes, merged
 
 
 def main():
@@ -201,10 +214,12 @@ def main():
             if ret_val:
                 meta, res = predictor.inference(frame)
 
-                result_frame = predictor.visualize(res[0], meta, cfg.class_names, 0.35)
+                refined_boxes, merged = extractMetaAndDecision(res[0])
 
-                extractMetaAndDecision(res[0])
-
+                result_frame = predictor.visualize(refined_boxes, meta, cfg.class_names, 0.35)
+                if merged:
+                    print('after mering boxes-count >>> ' + str(len(refined_boxes)))
+                    cv2.waitKey()
                 if args.save_result:
                     vid_writer.write(result_frame)
                 ch = cv2.waitKey(1)

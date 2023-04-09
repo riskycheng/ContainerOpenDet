@@ -23,14 +23,7 @@ _SMALL_OBJECT_AREA_THRESH = 1000
 
 
 def overlay_bbox_cv(img, dets, class_names, score_thresh):
-    all_box = []
-    for label in dets:
-        for bbox in dets[label]:
-            score = bbox[-1]
-            if score > score_thresh:
-                x0, y0, x1, y1 = [int(i) for i in bbox[:4]]
-                all_box.append([label, x0, y0, x1, y1, score])
-    all_box.sort(key=lambda v: v[5])
+    all_box = dets
     for box in all_box:
         label, x0, y0, x1, y1, score = box
         # color = self.cmap(i)[:3]
